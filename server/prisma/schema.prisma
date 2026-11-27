@@ -1,0 +1,419 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum MeasurementSource {
+  ROBOT
+  MANUAL
+  LAB
+}
+
+enum AnalysisStatus {
+  COMPLETED
+  UNAVAILABLE
+  FAILED
+}
+
+model User {
+  id                String    @id @default(cuid())
+  email             String    @unique
+  passwordHash      String
+  name              String
+  locale            String    @default("en")
+  phone             String?
+  resetTokenHash    String?
+  resetTokenExpires DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  farms           Farm[]
+  plantImages     PlantImage[]
+  bioPodExperiments BioPodExperiment[]
+}
+
+model Farm {
+  id           String   @id @default(cuid())
+  userId       String
+  name         String
+  areaHectares Float
+  locationName String?
+  latitude     Float
+  longitude    Float
+  waterSource  String?
+  waterAvailability String?
+  defaultCropKey String?
+  soilTexture  String?
+  isDemo       Boolean  @default(false)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  user                      User                       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  boundary                  FarmBoundary?
+  zones                     FarmZone[]
+  devices                   RobotDevice[]
+  measurements              SoilMeasurement[]
+  weatherRecords            WeatherRecord[]
+  cropRecommendations       CropRecommendation[]
+  fertilizerRecommendations FertilizerRecommendation[]
+  irrigationRecords         IrrigationRecord[]
+  seasons                   FinancialSeason[]
+  marketPrices              MarketPrice[]
+  decisionReports           DecisionReport[]
+  plantImages               PlantImage[]
+  bioPodExperiments         BioPodExperiment[]
+
+  @@index([userId])
+}
+
+model FarmBoundary {
+  id        String   @id @default(cuid())
+  farmId    String   @unique
+  geojson   Json
+  source    String   @default("user")
+  createdAt DateTime @default(now())
+
+  farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
+}
+
+model FarmZone {
+  id          String  @id @default(cuid())
+  farmId      String
+  code        String
+  row         Int
+  col         Int
+  polygon     Json
+  centroidLat Float
+  centroidLng Float
+  areaM2      Float
+  cropKey     String?
+  growthStage String?
+
+  farm                Farm                 @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  measurements        SoilMeasurement[]
+  cropRecommendations CropRecommendation[]
+  irrigationRecords   IrrigationRecord[]
+  plantImages         PlantImage[]
+  fertilizerRecommendations FertilizerRecommendation[]
+  decisionReports     DecisionReport[]
+  devicesHere         RobotDevice[]
+
+  @@unique([farmId, code])
+  @@index([farmId])
+}
+
+model RobotDevice {
+  id              String    @id @default(cuid())
+  farmId          String
+  name            String
+  deviceUid       String    @unique
+  apiKeyHash      String
+  apiKeyPrefix    String
+  lastSeenAt      DateTime?
+  lastDataAt      DateTime?
+  currentZoneId   String?
+  batteryPct      Float?
+  firmwareVersion String?
+  lastError       String?
+  lastErrorAt     DateTime?
+  createdAt       DateTime  @default(now())
+
+  farm         Farm              @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  currentZone  FarmZone?         @relation(fields: [currentZoneId], references: [id], onDelete: SetNull)
+  measurements SoilMeasurement[]
+
+  @@index([farmId])
+}
+
+model SoilMeasurement {
+  id          String            @id @default(cuid())
+  farmId      String
+  zoneId      String
+  deviceId    String?
+  source      MeasurementSource
+  moisture    Float?
+  ph          Float?
+  ec          Float?
+  temperature Float?
+  nitrogenPpm   Float?
+  phosphorusPpm Float?
+  potassiumPpm  Float?
+  organicMatterPct Float?
+  measuredAt  DateTime
+  receivedAt  DateTime          @default(now())
+  gpsLat      Float?
+  gpsLng      Float?
+  messageId   String?
+  dedupeKey   String?           @unique
+  notes       String?
+  isDemo      Boolean           @default(false)
+
+  farm   Farm         @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zone   FarmZone     @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+  device RobotDevice? @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([farmId, measuredAt])
+  @@index([zoneId, measuredAt])
+}
+
+model WeatherRecord {
+  id           String   @id @default(cuid())
+  farmId       String
+  date         DateTime @db.Date
+  t2m          Float?
+  t2mMax       Float?
+  t2mMin       Float?
+  rh2m         Float?
+  precipMm     Float?
+  solarMjM2    Float?
+  windMs       Float?
+  et0Mm        Float?
+  source       String   @default("NASA POWER")
+  fetchedAt    DateTime @default(now())
+
+  farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@unique([farmId, date])
+}
+
+model Crop {
+  id            String  @id @default(cuid())
+  key           String  @unique
+  nameEn        String
+  nameAr        String
+  phMin         Float
+  phOptMin      Float
+  phOptMax      Float
+  phMax         Float
+  tempMin       Float
+  tempOptMin    Float
+  tempOptMax    Float
+  tempMax       Float
+  moistureMin   Float
+  moistureOptMin Float
+  moistureOptMax Float
+  ecThreshold   Float
+  ecSlope       Float
+  kcIni         Float
+  kcMid         Float
+  kcEnd         Float
+  waterNeedMm   String
+  seasonEn      String?
+  seasonAr      String?
+  references    String
+}
+
+model CropRecommendation {
+  id          String   @id @default(cuid())
+  farmId      String
+  zoneId      String
+  results     Json
+  inputs      Json
+  generatedAt DateTime @default(now())
+
+  farm Farm     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zone FarmZone @relation(fields: [zoneId], references: [id], onDelete: Cascade)
+
+  @@index([zoneId, generatedAt])
+}
+
+model PlantImage {
+  id        String   @id @default(cuid())
+  userId    String
+  farmId    String?
+  zoneId    String?
+  storedName String
+  mimeType  String
+  sizeBytes Int
+  cropKey   String?
+  growthStage String?
+  purpose   String
+  createdAt DateTime @default(now())
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farm             Farm?             @relation(fields: [farmId], references: [id], onDelete: SetNull)
+  zone             FarmZone?         @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+  diseaseReports   DiseaseReport[]
+  nutrientAnalyses NutrientAnalysis[]
+
+  @@index([userId])
+}
+
+model DiseaseReport {
+  id           String         @id @default(cuid())
+  imageId      String
+  provider     String
+  status       AnalysisStatus
+  results      Json?
+  errorMessage String?
+  createdAt    DateTime       @default(now())
+
+  image PlantImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+}
+
+model NutrientAnalysis {
+  id           String         @id @default(cuid())
+  imageId      String
+  provider     String
+  status       AnalysisStatus
+  results      Json?
+  context      Json?
+  errorMessage String?
+  createdAt    DateTime       @default(now())
+
+  image PlantImage @relation(fields: [imageId], references: [id], onDelete: Cascade)
+}
+
+model FertilizerRecommendation {
+  id          String   @id @default(cuid())
+  farmId      String
+  zoneId      String?
+  cropKey     String
+  growthStage String?
+  inputs      Json
+  results     Json
+  createdAt   DateTime @default(now())
+
+  farm Farm      @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zone FarmZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+}
+
+model IrrigationRecord {
+  id          String   @id @default(cuid())
+  farmId      String
+  zoneId      String?
+  date        DateTime
+  volumeM3    Float
+  durationMin Float?
+  method      String?
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  farm Farm      @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zone FarmZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+
+  @@index([farmId, date])
+}
+
+model BioPodExperiment {
+  id          String   @id @default(cuid())
+  userId      String
+  farmId      String?
+  title       String
+  description String?
+  conditions  String?
+  startDate   DateTime?
+  createdAt   DateTime @default(now())
+
+  user   User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farm   Farm?         @relation(fields: [farmId], references: [id], onDelete: SetNull)
+  groups BioPodGroup[]
+}
+
+model BioPodGroup {
+  id           String  @id @default(cuid())
+  experimentId String
+  name         String
+  treatment    String?
+  isControl    Boolean @default(false)
+
+  experiment   BioPodExperiment    @relation(fields: [experimentId], references: [id], onDelete: Cascade)
+  observations BioPodObservation[]
+}
+
+model BioPodObservation {
+  id             String   @id @default(cuid())
+  groupId        String
+  replicate      Int
+  day            Float
+  moisture       Float
+  waterAppliedMl Float?
+  notes          String?
+  createdAt      DateTime @default(now())
+
+  group BioPodGroup @relation(fields: [groupId], references: [id], onDelete: Cascade)
+}
+
+model FinancialSeason {
+  id        String    @id @default(cuid())
+  farmId    String
+  name      String
+  cropKey   String?
+  startDate DateTime?
+  endDate   DateTime?
+  createdAt DateTime  @default(now())
+
+  farm     Farm            @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  expenses Expense[]
+  harvests HarvestRecord[]
+  sales    SalesRecord[]
+}
+
+model MarketPrice {
+  id          String   @id @default(cuid())
+  farmId      String?
+  itemKey     String?
+  name        String
+  category    String
+  unit        String
+  priceEgp    Float
+  isEstimate  Boolean  @default(true)
+  source      String?
+  priceDate   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  farm Farm? @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@index([farmId])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  seasonId    String
+  category    String
+  description String?
+  amountEgp   Float
+  date        DateTime
+  isEstimate  Boolean  @default(false)
+
+  season FinancialSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
+
+model HarvestRecord {
+  id         String   @id @default(cuid())
+  seasonId   String
+  cropKey    String
+  quantityTon Float
+  date       DateTime
+  isEstimate Boolean  @default(false)
+
+  season FinancialSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
+
+model SalesRecord {
+  id              String   @id @default(cuid())
+  seasonId        String
+  cropKey         String
+  quantityTon     Float
+  pricePerTonEgp  Float
+  date            DateTime
+  buyer           String?
+  isEstimate      Boolean  @default(false)
+
+  season FinancialSeason @relation(fields: [seasonId], references: [id], onDelete: Cascade)
+}
+
+model DecisionReport {
+  id          String   @id @default(cuid())
+  farmId      String
+  zoneId      String?
+  content     Json
+  generatedAt DateTime @default(now())
+
+  farm Farm      @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  zone FarmZone? @relation(fields: [zoneId], references: [id], onDelete: SetNull)
+}
